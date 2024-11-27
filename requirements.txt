@@ -1,0 +1,7 @@
+python-telegram-bot
+openai
+python-dotenv
+sqlalchemy
+numpy
+alembic
+pandas

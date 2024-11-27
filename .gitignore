@@ -1,0 +1,10 @@
+env/
+__pycache__/
+*.backup
+*.bak
+.venv/
+.env
+*.db
+*.xls
+*.xlsx
+*.csv
