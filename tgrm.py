@@ -1,5 +1,5 @@
 import openai
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup,ReplyKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, MessageHandler, filters, CallbackContext,Application,ApplicationBuilder
 from dotenv import load_dotenv
 import os
@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from datetime import datetime 
 import yaml
+import numpy as np
 
 load_dotenv()
 # Set your API keys
@@ -24,7 +25,7 @@ SYSTEM_PROMPT = "Act as an auction and vehicle history expert, proficient in pla
 
 engine = create_engine('sqlite:///carfaxbot.db')
 Session = sessionmaker(bind=engine)
-
+session = Session()
 Conversations = ConversationManager()
 
 # Function to handle user messages
@@ -100,13 +101,19 @@ async def fee_calculator(update: Update, context: CallbackContext):
 
     if len(current_context_messages) == 0:
         qorder = 1
-        Conversations.add_answer_message(active_conversation.conversation_id,questions[qorder],"",qorder)
-        await context.bot.send_message(chat_id=chat_id, text=questions[qorder])
+
+        if questions[qorder]['type'] == 'options':
+            keyboard = [questions[qorder]['options']]
+            reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+            await update.message.reply_text(questions[qorder]['question'], reply_markup=reply_markup)
+        elif questions[qorder]['type'] == 'open':
+            await context.bot.send_message(chat_id=chat_id, text=questions[qorder]['question'])
+        Conversations.add_answer_message(active_conversation.conversation_id,questions[qorder]['question'],"",qorder)
+       
 
     elif len(current_context_messages) == len(questions.keys()):
         previous_question = current_context_messages[-1]
         previous_answer   = user_message
-        # Conversations.add_answer_message(active_conversation.conversation_id,questions[qorder],"",qorder)
         Conversations.set_question_property(previous_question.id,"answer",previous_answer)
         Conversations.finish_conversation(active_conversation.conversation_id)           # Finalizar la conversación cuando tenga todoss los datos
         
@@ -116,8 +123,14 @@ async def fee_calculator(update: Update, context: CallbackContext):
         Conversations.set_question_property(previous_question.id,"answer",previous_answer)
 
         qorder  = previous_question.qorder +1
-        Conversations.add_answer_message(active_conversation.conversation_id,questions[qorder],"",qorder)
-        await context.bot.send_message(chat_id=chat_id, text=questions[qorder])
+        if questions[qorder]['type'] == 'options':
+            keyboard = [questions[qorder]['options']]
+            reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+            await update.message.reply_text(questions[qorder]['question'], reply_markup=reply_markup)
+        elif questions[qorder]['type'] == 'open':
+            await context.bot.send_message(chat_id=chat_id, text=questions[qorder]['question'])
+        Conversations.add_answer_message(active_conversation.conversation_id,questions[qorder]['question'],"",qorder)
+        # await context.bot.send_message(chat_id=chat_id, text=questions[qorder]['question'])
     
 
 
@@ -125,73 +138,42 @@ async def fee_calculator(update: Update, context: CallbackContext):
     if active_conversation.finished == True:
         # force Update chat state and datetime 
         Conversations.set_chat_property(chat_id,'current_chat_mode','message')
-    
 
-    output="""
+        carfees = []
+        estimate = float(current_context_messages[2].answer)
+        carfees.append(estimate)
+        titletype = current_context_messages[0].answer
+        vehicletype = current_context_messages[1].answer
+        paymenttype = 'Secure'
+        platformfee = session.query(CarFee).filter(CarFee.FinalBidMin<= estimate, CarFee.FinalBidMax>= estimate , CarFee.TitleType == titletype,CarFee.VehicleType == vehicletype , CarFee.PaymentType == paymenttype).first()
+        platformfee = float(platformfee.Fee)
+        carfees.append(platformfee)
+
+        total_amount = np.asarray(carfees).sum()
+
+        output="""
  ## Costo final estimado
-   $9,560.00
+   ${}
  `* Este es solo un estimado y no el costo final.`
  ### Cost Breakdown
 
  |                   |           |
  | ----------------- | --------- |
- | Bid Amount        | $7,777.00 |
- | Buyer Fee         | $1,005.00 |
+ | Bid Amount        | ${} |
+ | Buyer Fee         | ${} |
  | Gate Fee          | $79.00    |
  | Internet Bid Fee  | $119.00   |
  | Enviromental Fee  | $10.00    |
  | Title Mailing Fee | $20.00    |
  | Mapa Broker Fee   | $550.00   |
     
-     """
-    estimate = 1500
-    titletype = 'Clean'
-    vehicletype = 'Standard'
-    paymenttype = 'Secure'
-
-    # # Send messages to the user asking for input values
-    # await context.bot.send_message(chat_id=chat_id, text="Please enter the estimated value of the car:")
-    
-    # async def get_estimate(update: Update, context: CallbackContext):
-    #     nonlocal estimate
-    #     estimate = update.message.text
-    #     await context.bot.send_message(chat_id=chat_id, text="What is the type of title (Clean, Salvage, etc.)?")
-        
-    #     async def get_title_type(update: Update, context: CallbackContext):
-    #         nonlocal titletype
-    #         titletype = update.message.text
-    #         await context.bot.send_message(chat_id=chat_id, text="What is the make and model of the vehicle?")
-            
-    #         async def get_vehicletype(update: Update, context: CallbackContext):
-    #             nonlocal vehicletype
-    #             vehicletype = update.message.text
-    #             await context.bot.send_message(chat_id=chat_id, text="What type of payment (Cash, Credit Card, etc.) are you making?")
-                
-    #             async def get_payment_type(update: Update, context: CallbackContext):
-    #                 nonlocal paymenttype
-    #                 paymenttype = update.message.text
-                    
-    #                 # Use the provided values to calculate the fee and output a message with a table
-    #                 estimate = float(estimate)
-    #                 titletype = titletype
-    #                 vehicletype = vehicletype
-    #                 paymenttype = paymenttype
-                    
-    #                 output=f""" """
-    #                 await context.bot.send_message(chat_id=chat_id, text=output)
-
-    #             await get_payment_type()
-
-    #         await get_vehicletype()
-
-    #     await get_title_type()
-
-    # await get_estimate()
+     """.format(total_amount,estimate,platformfee)
+        await context.bot.send_message(chat_id=chat_id,text=output)
+ 
 
 
-    # session = Session()
-    # fee = session.query(CarFee).filter(CarFee.FinalBidMin<= estimate, CarFee.FinalBidMax>= estimate , CarFee.TitleType == titletype,CarFee.VehicleType == vehicletype , CarFee.PaymentType == paymenttype).first()
-    # # await context.bot.send_message(chat_id=chat_id, text=output,parse_mode='Markdown')
+
+
 
 async def finish_conversation(conversation_id):
     Conversations.finish_conversation(conversation_id)
