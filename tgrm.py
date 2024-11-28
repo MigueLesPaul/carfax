@@ -3,10 +3,10 @@ from telegram import Update
 from telegram.ext import Updater, CommandHandler, MessageHandler, filters, CallbackContext,Application,ApplicationBuilder
 from dotenv import load_dotenv
 import os
-from db import CarFee
+from db import CarFee,ConversationManager
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
-
+from datetime import datetime 
 
 load_dotenv()
 # Set your API keys
@@ -18,16 +18,29 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_API_TOKEN")
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 # Define a system prompt for the chatbot
-SYSTEM_PROMPT = "Auction and vehicle history expert, proficient in platforms, repairs, and title processes. Users may provide car details from Carfax platform"
+SYSTEM_PROMPT = "Act as an auction and vehicle history expert, proficient in platforms, repairs, and title processes. Users may provide car details from Carfax platform to get the most aproximate estimate of a car value for optimizing bidding in auction sales."
+
+
+engine = create_engine('sqlite:///carfaxbot.db')
+Session = sessionmaker(bind=engine)
+
+Conversations = ConversationManager()
 
 # Function to handle user messages
 async def handle_message(update: Update, context: CallbackContext):
     user_message = update.message.text
     chat_id = update.message.chat_id
+    if not Conversations.check_chat_in_db(chat_id):
+        Conversations.add_chat(chat_id,"message") 
 
+    
+    # force Update chat state and datetime 
+    Conversations.set_chat_property(chat_id,'last_interaction',datetime.now() )
+    Conversations.set_chat_property(chat_id,'current_chat_mode','message')
+    
     # Send the user message to OpenAI
     response = client.chat.completions.create(
-        model="gpt-3.5-turbo",     #"gpt-4",  # or "gpt-3.5-turbo"
+        model="gpt-4", #"gpt-3.5-turbo",     #  # or "gpt-3.5-turbo"
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_message}
@@ -52,6 +65,14 @@ async def fee_calculator(update: Update, context: CallbackContext):
     """
     user_message = update.message.text
     chat_id = update.message.chat_id
+    if not Conversations.check_chat_in_db(chat_id):
+        Conversations.add_chat(chat_id,"calcular_fees") 
+
+    # force Update chat state and datetime 
+    Conversations.set_chat_property(chat_id,'last_interaction',datetime.now() )
+    Conversations.set_chat_property(chat_id,'current_chat_mode','calcular_fees')
+    
+
     output="""
  ## Costo final estimado
    $9,560.00
@@ -69,15 +90,53 @@ async def fee_calculator(update: Update, context: CallbackContext):
  | Mapa Broker Fee   | $550.00   |
     
      """
-    estimate = user_message
-    titletype = user_message
-    vehicletype = user_message
-    paymenttype = user_message
-    engine = create_engine('sqlite:///fees.db')
-    Sesion = sessionmaker(bind=engine)
-    session = Session()
-    fee = sesion.query(CarFee).filter(CarFee.FinalBidMin<= estimate & CarFee.FinalBidMax>= estimate & CarFee.TitleType == titletype & CarFee.VehicleType == vehicletype & CarFee.PaymentType == paymenttype).first()
+    estimate = 1500
+    titletype = 'Clean'
+    vehicletype = 'Standard'
+    paymenttype = 'Secure'
 
+    # # Send messages to the user asking for input values
+    # await context.bot.send_message(chat_id=chat_id, text="Please enter the estimated value of the car:")
+    
+    # async def get_estimate(update: Update, context: CallbackContext):
+    #     nonlocal estimate
+    #     estimate = update.message.text
+    #     await context.bot.send_message(chat_id=chat_id, text="What is the type of title (Clean, Salvage, etc.)?")
+        
+    #     async def get_title_type(update: Update, context: CallbackContext):
+    #         nonlocal titletype
+    #         titletype = update.message.text
+    #         await context.bot.send_message(chat_id=chat_id, text="What is the make and model of the vehicle?")
+            
+    #         async def get_vehicletype(update: Update, context: CallbackContext):
+    #             nonlocal vehicletype
+    #             vehicletype = update.message.text
+    #             await context.bot.send_message(chat_id=chat_id, text="What type of payment (Cash, Credit Card, etc.) are you making?")
+                
+    #             async def get_payment_type(update: Update, context: CallbackContext):
+    #                 nonlocal paymenttype
+    #                 paymenttype = update.message.text
+                    
+    #                 # Use the provided values to calculate the fee and output a message with a table
+    #                 estimate = float(estimate)
+    #                 titletype = titletype
+    #                 vehicletype = vehicletype
+    #                 paymenttype = paymenttype
+                    
+    #                 output=f""" """
+    #                 await context.bot.send_message(chat_id=chat_id, text=output)
+
+    #             await get_payment_type()
+
+    #         await get_vehicletype()
+
+    #     await get_title_type()
+
+    # await get_estimate()
+
+    print(Conversations.get_chat(chat_id))
+    session = Session()
+    fee = session.query(CarFee).filter(CarFee.FinalBidMin<= estimate, CarFee.FinalBidMax>= estimate , CarFee.TitleType == titletype,CarFee.VehicleType == vehicletype , CarFee.PaymentType == paymenttype).first()
     # await context.bot.send_message(chat_id=chat_id, text=output,parse_mode='Markdown')
 
 
