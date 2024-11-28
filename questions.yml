@@ -1,0 +1,4 @@
+calcular_fees:
+  1: ¿Cuál es el tipo de título? (Salvage o Clean)
+  2: ¿Qué tipo de Vehículo? (Standard o Heavy)
+  3: ¿Cual es el estimado en $?

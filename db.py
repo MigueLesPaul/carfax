@@ -67,6 +67,7 @@ class Conversation(Base):
     
     chat = relationship("Chat",back_populates="conversation")
     message = relationship("Message",back_populates="conversation")
+    question = relationship("Question",back_populates="conversation")
 
 class Message(Base):
     __tablename__="messages"
@@ -77,11 +78,22 @@ class Message(Base):
 
     conversation = relationship("Conversation",back_populates="message")
 
+class Question(Base):
+    __tablename__="questions"
+    id = Column(Integer, primary_key=True)
+    qorder = Column(Integer)
+    question = Column(String)
+    answer = Column(String)
+    conversation_id = Column(String,ForeignKey("conversations.conversation_id"))
+
+    conversation =  relationship("Conversation",back_populates="question")
 
 class ConversationManager():
     def __init__(self):
         self.session = Session()
         self.qchats = self.session.query(Chat)
+        self.conversations = self.session.query(Conversation)
+        self.questions   = self.session.query(Question)
 
     
     def check_chat_in_db(self,chat_id):
@@ -99,12 +111,36 @@ class ConversationManager():
         chat = self.qchats.filter_by(chat_id=chat_id).first()
         setattr(chat,cproperty,cvalue)
         self.session.commit()
+    
+    def set_conversation_property(self,conversation_id,cproperty,cvalues):
+        conve = self.conversations.filter_by(conversation_id=conversation_id).first()
+        setattr(conve,cproperty,cvalues)
+        self.session.commit()
 
-        
+    def check_conversation_in_db(self,chat_id):
+        return bool(self.conversations.filter_by(chat_id=chat_id).first()  )
 
+    def add_conversation(self,chat_id):
+        self.session.add(Conversation(chat_id=chat_id)    )     
+        self.session.commit()   
+    
+    def get_unfinished_conversations(self,chat_id):
+        return self.conversations.filter_by(chat_id=chat_id,finished=False).order_by(Conversation.start_time).all()
 
+    def finish_conversation(self,conversation_id):
+        self.set_conversation_property(conversation_id,"finished",True)
+        self.set_conversation_property(conversation_id,"end_time",datetime.now())
+    
+    def get_active_conversation_questions(self,conversation_id):    #actually question answers 😑
+        return self.questions.filter_by(conversation_id=conversation_id).order_by(Question.qorder).all()
 
+    def add_answer_message(self,conversation_id,question,answer,qorder):
+        self.session.add(Question(conversation_id=conversation_id,question=question,answer=answer,qorder=qorder))
 
+    def set_question_property(self,question_id,cproperty,cvalues):
+        question = self.questions.filter_by(id=question_id).first()
+        setattr(question,cproperty,cvalues)
+        self.session.commit()
 
 
 
