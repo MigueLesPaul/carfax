@@ -11,9 +11,9 @@ Session = sessionmaker(bind=engine)
 class CarFee(Base):
     __tablename__="carfees"
     id = Column(Integer, primary_key=True)
-    FinalBidMin = Column(DECIMAL)
-    FinalBidMax = Column(DECIMAL)
-    Fee         = Column(DECIMAL)
+    FinalBidMin = Column(DECIMAL(10,3))
+    FinalBidMax = Column(DECIMAL(10,3))
+    Fee         = Column(DECIMAL(10,3))
     FeeType     = Column(String)     # Absolut or Percent
     TitleType   = Column(String)     # Salvage or Clean
     VehicleType = Column(String)      #  Standard or Heavy

@@ -1,0 +1,8 @@
+Select Fee 
+FROM carfees
+WHERE
+PaymentType = 'Secure' 
+AND TitleType = 'Clean'
+AND VehicleType ='Heavy'
+AND  FinalBidMin<=9001
+;

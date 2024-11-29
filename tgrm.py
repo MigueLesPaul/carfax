@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import os
 from db import CarFee,ConversationManager
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine,func
 from datetime import datetime 
 import yaml
 import numpy as np
@@ -153,10 +153,19 @@ async def fee_calculator(update: Update, context: CallbackContext):
         titletype = current_context_messages[0].answer
         vehicletype = current_context_messages[1].answer
         paymenttype = 'Secure'
-        platformfee = session.query(CarFee).filter(CarFee.FinalBidMin<= estimate, CarFee.FinalBidMax>= estimate , CarFee.TitleType == titletype,CarFee.VehicleType == vehicletype , CarFee.PaymentType == paymenttype).first()
-        platformfee = float(platformfee.Fee)
-        carfees.append(platformfee)
 
+        maxvalue = session.query(func.max(CarFee.FinalBidMin)).filter().scalar()
+        if estimate >= maxvalue:
+            platformfee = session.query(CarFee).filter(CarFee.FinalBidMin<= estimate, CarFee.TitleType == titletype,CarFee.VehicleType == vehicletype , CarFee.PaymentType == paymenttype).order_by(CarFee.FinalBidMin.desc()).first()
+        else:
+            platformfee = session.query(CarFee).filter(CarFee.FinalBidMin<= estimate, CarFee.FinalBidMax>= estimate , CarFee.TitleType == titletype,CarFee.VehicleType == vehicletype , CarFee.PaymentType == paymenttype).first()
+        
+        if platformfee.FeeType == 'Absolute':
+            platformfee = float(platformfee.Fee)
+        elif platformfee.FeeType == 'Percentual':
+            platformfee = (float(platformfee.Fee)/100.0 )*estimate 
+
+        carfees.append(platformfee)
         total_amount = np.asarray(carfees).sum()
 
         output="""
