@@ -20,7 +20,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_API_TOKEN")
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 # Define a system prompt for the chatbot
-SYSTEM_PROMPT = "Act as an auction and vehicle history expert, proficient in platforms, repairs, and title processes. Users may provide car details from Carfax platform to get the most aproximate estimate of a car value for optimizing bidding in auction sales."
+SYSTEM_PROMPT = "Act as an auction and vehicle history expert, proficient in platforms, repairs, and title processes. Users may provide car details from Carfax platform to get the most aproximate estimate of a car value for optimizing bidding in auction sales. Bear in mind that if the user request the processing of a PDF this data is available to you via our own conversion process and your answer should be affirmative."
 
 
 engine = create_engine('sqlite:///carfaxbot.db')
@@ -120,9 +120,15 @@ async def fee_calculator(update: Update, context: CallbackContext):
     else:
         previous_question = current_context_messages[-1]
         previous_answer   = user_message
-        Conversations.set_question_property(previous_question.id,"answer",previous_answer)
 
-        qorder  = previous_question.qorder +1
+        if previous_answer != "/calcular_fees": #prevents from saving the accidental command repetition
+            Conversations.set_question_property(previous_question.id,"answer",previous_answer)
+
+        if not previous_question.answer or previous_question.answer == '':
+            qorder  = previous_question.qorder
+        else:
+            qorder = previous_question.qorder + 1
+
         if questions[qorder]['type'] == 'options':
             keyboard = [questions[qorder]['options']]
             reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
@@ -152,24 +158,24 @@ async def fee_calculator(update: Update, context: CallbackContext):
         total_amount = np.asarray(carfees).sum()
 
         output="""
- ## Costo final estimado
-   ${}
- `* Este es solo un estimado y no el costo final.`
- ### Cost Breakdown
+*Costo final estimado*
 
- |                   |           |
- | ----------------- | --------- |
- | Bid Amount        | ${} |
- | Buyer Fee         | ${} |
- | Gate Fee          | $79.00    |
- | Internet Bid Fee  | $119.00   |
- | Enviromental Fee  | $10.00    |
- | Title Mailing Fee | $20.00    |
- | Mapa Broker Fee   | $550.00   |
+${}
+
+`Este es solo un estimado y no el costo final.`
+   
+*Cost Breakdown*
+
+    _Bid Amount_ : ${} 
+    _Buyer Fee_  : ${}
     
      """.format(total_amount,estimate,platformfee)
-        await context.bot.send_message(chat_id=chat_id,text=output)
- 
+        await context.bot.send_message(chat_id=chat_id,text=output,parse_mode='Markdown')
+#     """ | Gate Fee          | $79.00    |
+#  | Internet Bid Fee  | $119.00   |
+#  | Enviromental Fee  | $10.00    |
+#  | Title Mailing Fee | $20.00    |
+#  | Mapa Broker Fee   | $550.00   |"""
 
 
 
