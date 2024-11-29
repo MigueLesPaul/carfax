@@ -9,6 +9,8 @@ from sqlalchemy import create_engine
 from datetime import datetime 
 import yaml
 import numpy as np
+import pdfplumber
+from io import BytesIO
 
 load_dotenv()
 # Set your API keys
@@ -178,7 +180,37 @@ ${}
 #  | Mapa Broker Fee   | $550.00   |"""
 
 
+async def handle_document(update: Update, context: CallbackContext):
+    document = update.message.document
+    chat_id = update.message.chat_id
+    file = await document.get_file()
+    file_stream = BytesIO()
+    file= await file.download_to_memory(file_stream)
+    file_stream.seek(0)
+    with pdfplumber.open(file_stream) as pdf:
+        text = """
+        Can you help me get an optimized estimate of an amount of money safe to bid for a car based on the following Carfax history information:
+            
 
+    
+         """
+        for p in pdf.pages:
+            text+=p.extract_text()
+    
+    response = client.chat.completions.create(
+    model="gpt-4", #"gpt-3.5-turbo",     #  # or "gpt-3.5-turbo"
+    messages=[
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": text}]
+    )
+    print("""User: {}""".format(text))
+    # Extract the bot's reply
+    bot_reply = response.choices[0].message.content
+    # bot_reply="Que volá, te gusta que te responda?"
+    print("""Bot: {}""".format(bot_reply))
+    # Send the reply back to the user on Telegram
+
+    await context.bot.send_message(chat_id=chat_id, text=bot_reply)
 
 
 async def finish_conversation(conversation_id):
@@ -198,6 +230,7 @@ def main():
     )
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
     application.add_handler(CommandHandler("calcular_fees",fee_calculator))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     application.run_polling()
 if __name__ == "__main__":
     main()

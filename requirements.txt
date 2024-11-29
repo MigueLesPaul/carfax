@@ -6,3 +6,4 @@ numpy
 alembic
 pandas
 pyyaml
+pdfplumber
