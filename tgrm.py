@@ -22,7 +22,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_API_TOKEN")
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 # Define a system prompt for the chatbot
-SYSTEM_PROMPT = "Act as an auction and vehicle history expert, proficient in platforms, repairs, and title processes. Users may provide car details from Carfax platform to get the most aproximate estimate of a car value for optimizing bidding in auction sales. Bear in mind that if the user request the processing of a PDF this data is available to you via our own conversion process and your answer should be affirmative."
+SYSTEM_PROMPT = "Act as an auction and vehicle history expert, proficient in platforms, repairs, and title processes. Users may provide car details from Carfax platform to get the most aproximate estimate of a car value for optimizing bidding in auction sales. Bear in mind that if the user request the processing of a PDF this data is available to you via our own conversion process and your answer should be affirmative. If the user ask for an estimation of the final price you should answer with a direct numeric value for the estimation and  redirect them to this custom command: /calcular_fees for the final estimation breakdown."
 
 
 engine = create_engine('sqlite:///carfaxbot.db')
@@ -196,6 +196,10 @@ async def handle_document(update: Update, context: CallbackContext):
     file_stream = BytesIO()
     file= await file.download_to_memory(file_stream)
     file_stream.seek(0)
+
+    info_text="Let me check that information for you"
+    await context.bot.send_message(chat_id=chat_id, text=info_text)
+
     with pdfplumber.open(file_stream) as pdf:
         text = """
         Can you help me get an optimized estimate of an amount of money safe to bid for a car based on the following Carfax history information:
