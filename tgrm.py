@@ -3,7 +3,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup,ReplyKey
 from telegram.ext import Updater, CommandHandler, MessageHandler, filters, CallbackContext,Application,ApplicationBuilder
 from dotenv import load_dotenv
 import os
-from db import CarFee,ConversationManager
+from db import CarFee,ConversationManager,Message
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine,func
 from datetime import datetime 
@@ -22,7 +22,24 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_API_TOKEN")
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 # Define a system prompt for the chatbot
-SYSTEM_PROMPT = "Act as an auction and vehicle history expert, proficient in platforms, repairs, and title processes. Users may provide car details from Carfax platform to get the most aproximate estimate of a car value for optimizing bidding in auction sales. Bear in mind that if the user request the processing of a PDF this data is available to you via our own conversion process and your answer should be affirmative. If the user ask for an estimation of the final price you should answer with a direct numeric value for the estimation and  redirect them to this custom command: /calcular_fees for the final estimation breakdown."
+SYSTEM_PROMPT = """
+Act as an auction and vehicle history expert, proficient in platforms, repairs, and title processes. 
+This GPT is an expert on vehicle auctions and related processes. It knows everything about the platforms Copart, IAA, and Manheim, and is proficient in navigating and utilizing these websites to find vehicles, understand listings, and make recommendations. Additionally, it can analyze Carfax reports with precision, offering detailed insights into both the positive and negative aspects of any vehicle history presented.
+
+The GPT is highly skilled at finding parts for vehicles by searching online and locally across the U.S., providing accurate repair cost estimates based on current pricing trends. It can also recommend the best deals on parts and direct users to the appropriate stores or websites for purchasing.
+
+The GPT is familiar with towing services, able to find the best rates for transportation across the U.S., and recommend where users can find affordable options for moving vehicles.
+
+It can go beyond Carfax and use other tools like BidCars or BidFax to uncover detailed vehicle histories, including previous sales or accidents. The GPT also knows the full process of buying and selling vehicles, advising on steps like title transfers, taxes, and any other legal documentation required.
+
+Additionally, it understands the process for changing a vehicle’s title from salvage to rebuilt, providing guidance on every step of that transition.
+
+This GPT also knows all the fees associated with Copart, and understands your service's broker fees: $297 for vehicles ranging from $0 to $6,999, $497 for vehicles from $7,000 to $15,000, and $597 for vehicles above $15,000.
+Users may provide car details from Carfax platform to get the most aproximate estimate of a car value for optimizing bidding in auction sales.
+Bear in mind that if the user request the processing of a PDF this data is available to you via our own conversion process and your answer should be affirmative. 
+If the user ask for an estimation of the final price you should answer with a direct numeric value for the estimation and  redirect them to this custom command: /fees for the final estimation breakdown.
+
+"""
 
 
 engine = create_engine('sqlite:///carfaxbot.db')
@@ -54,12 +71,21 @@ async def handle_message(update: Update, context: CallbackContext):
             {"role": "user", "content": user_message}
         ]
     )
+
+    
     print("""User: {}""".format(user_message))
+    msg1 = Message(content=user_message,chat_id=chat_id,role="user")
+    session.add(msg1)
+    session.commit()
     # Extract the bot's reply
     bot_reply = response.choices[0].message.content
     # bot_reply="Que volá, te gusta que te responda?"
     print("""Bot: {}""".format(bot_reply))
+    msg2 = Message(content=bot_reply,chat_id=chat_id,role="assistant")
+    session.add(msg2)
+    session.commit()
     # Send the reply back to the user on Telegram
+    
 
     await context.bot.send_message(chat_id=chat_id, text=bot_reply)
 
@@ -103,13 +129,13 @@ async def fee_calculator(update: Update, context: CallbackContext):
 
     if len(current_context_messages) == 0:
         qorder = 1
-
+        qtext = await translate(chat_id,questions[qorder]['question'])
         if questions[qorder]['type'] == 'options':
             keyboard = [questions[qorder]['options']]
             reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
-            await update.message.reply_text(questions[qorder]['question'], reply_markup=reply_markup)
+            await update.message.reply_text(qtext, reply_markup=reply_markup)
         elif questions[qorder]['type'] == 'open':
-            await context.bot.send_message(chat_id=chat_id, text=questions[qorder]['question'])
+            await context.bot.send_message(chat_id=chat_id, text=qtext)
         Conversations.add_answer_message(active_conversation.conversation_id,questions[qorder]['question'],"",qorder)
        
 
@@ -126,17 +152,18 @@ async def fee_calculator(update: Update, context: CallbackContext):
         if previous_answer != "/calcular_fees": #prevents from saving the accidental command repetition
             Conversations.set_question_property(previous_question.id,"answer",previous_answer)
 
-        if not previous_question.answer or previous_question.answer == '':
+        if not previous_question.answer or previous_question.answer == '':    # prevent voided answers by questioning again
             qorder  = previous_question.qorder
         else:
             qorder = previous_question.qorder + 1
 
+        qtext = await translate(chat_id,questions[qorder]['question'])
         if questions[qorder]['type'] == 'options':
             keyboard = [questions[qorder]['options']]
             reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
-            await update.message.reply_text(questions[qorder]['question'], reply_markup=reply_markup)
+            await update.message.reply_text(qtext, reply_markup=reply_markup)
         elif questions[qorder]['type'] == 'open':
-            await context.bot.send_message(chat_id=chat_id, text=questions[qorder]['question'])
+            await context.bot.send_message(chat_id=chat_id, text=qtext)
         Conversations.add_answer_message(active_conversation.conversation_id,questions[qorder]['question'],"",qorder)
         # await context.bot.send_message(chat_id=chat_id, text=questions[qorder]['question'])
     
@@ -181,6 +208,7 @@ ${}
     _Buyer Fee_  : ${}
     
      """.format(total_amount,estimate,platformfee)
+        output = await translate(chat_id,output)
         await context.bot.send_message(chat_id=chat_id,text=output,parse_mode='Markdown')
 #     """ | Gate Fee          | $79.00    |
 #  | Internet Bid Fee  | $119.00   |
@@ -197,7 +225,8 @@ async def handle_document(update: Update, context: CallbackContext):
     file= await file.download_to_memory(file_stream)
     file_stream.seek(0)
 
-    info_text="Let me check that information for you"
+    info_text=translate(chat_id,"Let me check that information for you")
+
     await context.bot.send_message(chat_id=chat_id, text=info_text)
 
     with pdfplumber.open(file_stream) as pdf:
@@ -217,13 +246,43 @@ async def handle_document(update: Update, context: CallbackContext):
         {"role": "user", "content": text}]
     )
     print("""User: {}""".format(text))
+    msg1 = Message(content=info_text,chat_id=chat_id,role="user")
+    session.add(msg1)
+    session.commit()
     # Extract the bot's reply
     bot_reply = response.choices[0].message.content
     # bot_reply="Que volá, te gusta que te responda?"
     print("""Bot: {}""".format(bot_reply))
     # Send the reply back to the user on Telegram
-
+    msg1 = Message(content=bot_reply,chat_id=chat_id,role="assistant")
+    session.add(msg1)
+    session.commit()
     await context.bot.send_message(chat_id=chat_id, text=bot_reply)
+
+
+async def translate(chat_id,phrase):
+    """
+    provide a chat_id to check the last user messages and translate the phrase to the detected language
+     """
+    user_message = Conversations.get_previus_user_messages(chat_id=chat_id)[-1]     # get the previous message
+
+    return await utranslator(user_message,phrase)
+
+async def utranslator(target,phrase):
+    initial_prompt = """You will act as an expert multilingual translator. 
+    I will provide you with a phrase to identify what language is written in and another phrase to be translated. 
+    You will answer only with the second phrase translated to the identified language.
+    If the language of both phrases is the same you will keep the second one verbatim
+    The phrases will be separated by a semmicolom.
+    """
+    text = ';'.join([target,phrase])
+    response = client.chat.completions.create(
+    model="gpt-4", #"gpt-3.5-turbo",     #  # or "gpt-3.5-turbo"
+    messages=[
+        {"role": "system", "content": initial_prompt},
+        {"role": "user", "content": text}]
+    )
+    return response.choices[0].message.content
 
 
 async def finish_conversation(conversation_id):
@@ -231,6 +290,19 @@ async def finish_conversation(conversation_id):
 async def create_new_answer_message(conversation_id,question,answer,qorder):
     Conversations.add_answer_message(conversation_id,question,answer,qorder)
 
+def is_numeric(value):
+    try:
+        float(value)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+async def start_handler(update: Update,context: CallbackContext):
+    welcome_message = """
+    
+    `Auction and vehicle history expert, proficient in platforms, repairs, and title processes.` 
+    _By Hector Gonzalez_
+    """
 
 
 # Start the Telegram bot
@@ -241,8 +313,13 @@ def main():
         .concurrent_updates(True)
         .build()
     )
+
+    application.add_handler(CommandHandler("start",start_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
     application.add_handler(CommandHandler("calcular_fees",fee_calculator))
+    application.add_handler(CommandHandler("fees",fee_calculator))
+    application.add_handler(CommandHandler("fee",fee_calculator))
+    
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     application.run_polling()
 if __name__ == "__main__":

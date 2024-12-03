@@ -51,7 +51,7 @@ class Chat(Base):
     current_chat_mode = Column(String)           # command_name for commands, message for the rest (for handling with chatgpt)
     user_is_premium = Column(Boolean,default=False)
     conversation = relationship("Conversation", back_populates="chat")
-   
+    message      = relationship("Message",back_populates="chat")
     def to_dict(self):
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}
 
@@ -75,7 +75,9 @@ class Message(Base):
     content = Column(String)
     mtime  = Column(DateTime,default=datetime.now())
     conversation_id = Column(String,ForeignKey('conversations.conversation_id'))
-
+    chat_id=  Column(String,ForeignKey('chats.chat_id'))
+    chat = relationship("Chat",back_populates="message")
+    role = Column(String)                                        # user,assistant, system
     conversation = relationship("Conversation",back_populates="message")
 
 class Question(Base):
@@ -141,6 +143,10 @@ class ConversationManager():
         question = self.questions.filter_by(id=question_id).first()
         setattr(question,cproperty,cvalues)
         self.session.commit()
+    def get_previus_user_messages(self,chat_id):
+        messages = self.session.query(Message).filter_by(chat_id=chat_id,role="user")
+        return [msg.content for msg in messages]
+
 
 
 
