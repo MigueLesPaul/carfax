@@ -1,6 +1,6 @@
 import openai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup,ReplyKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, MessageHandler, filters, CallbackContext,Application,ApplicationBuilder
+from telegram.ext import Updater, CommandHandler, MessageHandler, filters, CallbackContext,Application,ApplicationBuilder, CallbackQueryHandler
 from dotenv import load_dotenv
 import os
 from db import CarFee,ConversationManager,Message
@@ -87,7 +87,7 @@ async def handle_message(update: Update, context: CallbackContext):
     # Send the reply back to the user on Telegram
     
 
-    await context.bot.send_message(chat_id=chat_id, text=bot_reply)
+    await context.bot.send_message(chat_id=chat_id, text=bot_reply,parse_mode="Markdown")
 
 
 
@@ -97,7 +97,10 @@ async def fee_calculator(update: Update, context: CallbackContext):
     output: text with a table including all the fees. 
     
     """
-    user_message = update.message.text
+    if update.message:
+        user_message = update.message.text
+    else:
+        user_message =""
     chat_id = update.message.chat_id
     with open('questions.yml','r') as file:
         questions = yaml.safe_load(file)['calcular_fees']
@@ -209,7 +212,10 @@ ${}
     
      """.format(total_amount,estimate,platformfee)
         output = await translate(chat_id,output)
-        await context.bot.send_message(chat_id=chat_id,text=output,parse_mode='Markdown')
+        output = output.split(';')[-1]
+        reply_markup = await default_buttons(update)
+        await context.bot.send_message(chat_id=chat_id,text=output,parse_mode='Markdown',reply_markup=reply_markup)
+        
 #     """ | Gate Fee          | $79.00    |
 #  | Internet Bid Fee  | $119.00   |
 #  | Enviromental Fee  | $10.00    |
@@ -225,7 +231,7 @@ async def handle_document(update: Update, context: CallbackContext):
     file= await file.download_to_memory(file_stream)
     file_stream.seek(0)
 
-    info_text=translate(chat_id,"Let me check that information for you")
+    info_text= await translate(chat_id,"Ok. Revisaré esa información para ti.")
 
     await context.bot.send_message(chat_id=chat_id, text=info_text)
 
@@ -257,7 +263,8 @@ async def handle_document(update: Update, context: CallbackContext):
     msg1 = Message(content=bot_reply,chat_id=chat_id,role="assistant")
     session.add(msg1)
     session.commit()
-    await context.bot.send_message(chat_id=chat_id, text=bot_reply)
+    reply_markup = await default_buttons(update)
+    await context.bot.send_message(chat_id=chat_id, text=bot_reply,reply_markup=reply_markup)
 
 
 async def translate(chat_id,phrase):
@@ -271,11 +278,11 @@ async def translate(chat_id,phrase):
 async def utranslator(target,phrase):
     initial_prompt = """You will act as an expert multilingual translator. 
     I will provide you with a phrase to identify what language is written in and another phrase to be translated. 
-    You will answer only with the second phrase translated to the identified language.
+    You must ALWAYS answer only with the second phrase translated to the identified language and anything else.
     If the language of both phrases is the same you will keep the second one verbatim
-    The phrases will be separated by a semmicolom.
+    The phrases will be separated by a semicolon.
     """
-    text = ';'.join([target,phrase])
+    text = " ; ".join([target,phrase])
     response = client.chat.completions.create(
     model="gpt-4", #"gpt-3.5-turbo",     #  # or "gpt-3.5-turbo"
     messages=[
@@ -298,11 +305,49 @@ def is_numeric(value):
         return False
 
 async def start_handler(update: Update,context: CallbackContext):
+    chat_id = update.message.chat_id
     welcome_message = """
-    
-    `Auction and vehicle history expert, proficient in platforms, repairs, and title processes.` 
-    _By Hector Gonzalez_
+*Asistente JM Broker*
+
+¡Hola! Soy tu experto en subastas e historial de vehículos, competente en plataformas, reparaciones y procesos de títulos.
+
+_Creado por Héctor González_
+
     """
+    # welcome_message = await translate(chat_id,welcome_message)
+    # await context.bot.send_message(chat_id=chat_id,text = welcome_message,parse_mode='Markdown')
+    active_conversation_list = Conversations.get_unfinished_conversations(chat_id)
+    for ac in active_conversation_list:
+        await finish_conversation(ac.conversation_id)
+    reply_markup = await default_buttons(update)
+    await context.bot.send_message(chat_id=chat_id,text=welcome_message,parse_mode="Markdown",reply_markup=reply_markup)
+    
+
+
+
+async def default_buttons(update):
+    keyboard = [[
+        "¿Cómo analizo este informe de Carfax en busca de problemas?",
+        "Ayúdame a encontrar las mejores ofertas en Copart, IAA o Manheim."],
+        ["¿Dónde puedo encontrar las piezas más baratas para una reparación de automóvil?",
+       "¿Cuál es el proceso para convertir un título salvage a un título rebuilt?"],
+        ["/fee calculator"]
+        ]
+
+    # keyboard = [[InlineKeyboardButton("Calcular Fees", callback_data='/fees')]]
+
+    reply_markup = ReplyKeyboardMarkup(keyboard)
+    # reply_markup = InlineKeyboardMarkup(keyboard)
+    return reply_markup
+
+
+async def button_callback_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == '/fees':
+        await fee_calculator(update,context)
+
 
 
 # Start the Telegram bot
@@ -321,6 +366,7 @@ def main():
     application.add_handler(CommandHandler("fee",fee_calculator))
     
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    application.add_handler(CallbackQueryHandler(button_callback_handler))
     application.run_polling()
 if __name__ == "__main__":
     main()
